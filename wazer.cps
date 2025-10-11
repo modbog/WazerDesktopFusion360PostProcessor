@@ -5,7 +5,7 @@
   Wazer Waterjet post processor configuration.
 
   $Revision: 
-  $Date: 2025-09-30 13:23:15 $
+  $Date: 2025-10-11 12:38:10 $
 
   FORKID {}
 */
@@ -87,7 +87,7 @@ properties = {
     description: "Specifies the WAM software version.",
     group      : "preferences",
     type       : "number",
-    value      : 1.3,
+    value      : 1.31,
     scope      : "post"
   },
   material: {
@@ -357,7 +357,9 @@ var gUnitModal = createModal({}, gFormat); // modal group 6 // G20-22
 // collected state
 var sequenceNumber;
 
-var totalTime = 0;
+var maxFeedRateInMMPM = 1500;
+// adjusted cuting time with corner compensation feedrate adjustments applied
+var adjustedCuttingTime = 0;
 
 // globals for buffering of linear and rapid moves to be used in post processor based corner compensation
 // do not use feed optimization as that does not progressively adjust feedrate into and out of corners
@@ -557,19 +559,6 @@ function onOpen() {
     writeComment(programComment);
   }
 
-  var cuttingTime = 0;
-  var rapidTime = 0;
-  //var totalTime = 0;
-  for (var i = 0; i < getNumberOfSections(); ++i) {
-    var section = getSection(i);
-    var rapidFeedrate = (unit == MM ? 1905 : 75); // FIXME where is unit set?
-    var cuttingDistance = section.getCuttingDistance();
-    var rapidDistance = section.getRapidDistance();
-    cuttingTime += (cuttingDistance / tableFeedrate * 60);
-    rapidTime += (rapidDistance / rapidFeedrate * 60);
-  }
-  totalTime = (cuttingTime + rapidTime);
-
   if (hasGlobalParameter("document-path")) {
     var documentPath = getGlobalParameter("document-path");
   }
@@ -578,9 +567,7 @@ function onOpen() {
   writeComment("Input file name : " + documentPath);
   writeComment("Material name : " + getProperty("material"));
   writeComment("Material thickness : " + getMaterialThickness(getSection(0)) + (unit == MM ? "MM" : "IN"));
-  writeComment("Cut Time: " + formatCycleTime(totalTime));
-  //writeComment("-------------------------------Do not modify the Gcode file---------------");
-
+  
   // dump machine configuration
   var vendor = machineConfiguration.getVendor();
   var model = machineConfiguration.getModel();
@@ -1186,6 +1173,8 @@ function processAndWriteSection() {
         writeBlock(mFormat.format(3));
         writeBlock(mFormat.format(8));
         writeBlock(gFormat.format(4), "S" + secFormat.format(pierceTime));
+        // add pierceTime to adjustedCuttingTime
+        adjustedCuttingTime += pierceTime;
       } else {
         //writeComment("power == false - turn off cutter");
         var endPauseScaleVariable = 0.15;
@@ -1195,10 +1184,16 @@ function processAndWriteSection() {
         writeBlock(mFormat.format(5));
         writeBlock(gFormat.format(4), "S" + secFormat.format(1));
         writeln("");
+        // add dwell time ((endPauseScaleVariable * pierceTime) + 1 + 1) to adjustedCuttingTime
+        adjustedCuttingTime += (endPauseScaleVariable * pierceTime) + 2;
       }
     }
 
     if (sectionMoves[i].type == "linear") {
+      // add linear moves with adjusted feedrate to adjustedCuttingTime
+      if (!(segmentLengths[i-1] === undefined)) {
+        adjustedCuttingTime += (segmentLengths[i-1] / adjustedFeed * 60);
+      }
       onStraight = (angles[i-1] == 0) ? true : false;
       if (onStraight && lastFeed == adjustedFeed)
       {
@@ -1234,6 +1229,11 @@ function processAndWriteSection() {
       lastF = f;
 
     } else if (sectionMoves[i].type == "rapid") {
+      // add rapid moves with adjusted feedrate to adjustedCuttingTime
+      if (!(segmentLengths[i-1] === undefined)) {
+        var rapidFeedRate = (unit == MM ? maxFeedRateInMMPM : maxFeedRateInMMPM / 25.4); // FIXME where is unit set?
+        adjustedCuttingTime += (segmentLengths[i-1] / rapidFeedRate * 60);
+      }
       onStraight = false;
       writeBlock(gMotionModal.format(0), x, y);
     } else {
@@ -1292,7 +1292,7 @@ function getAngleAndMagnitudeFromSegmentPositionsForAngles(segmentPositionsForAn
 }
 
 function onClose() {
-  writeBlock(mFormat.format(1413), formatCycleTime(totalTime));
+  writeBlock(mFormat.format(1413), formatCycleTime(adjustedCuttingTime));
   writeBlock(mFormat.format(1404));
 }
 
