@@ -5,7 +5,7 @@
   Wazer Waterjet post processor configuration.
 
   $Revision: 
-  $Date: 2025-10-11 12:38:10 $
+  $Date: 2025-10-15 10:27:00 $
 
   FORKID {}
 */
@@ -87,7 +87,7 @@ properties = {
     description: "Specifies the WAM software version.",
     group      : "preferences",
     type       : "number",
-    value      : 1.31,
+    value      : 1.32,
     scope      : "post"
   },
   material: {
@@ -160,6 +160,14 @@ properties = {
   IgnoreMaxThickness: {
     title      : "Ignore Max thickness",
     description: "Override failure",
+    group      : "preferences",
+    type       : "boolean",
+    value      : false,
+    scope      : "post"
+  },
+  IncludeFakeToolSelect: {
+    title      : "Include Fake Tool Select",
+    description: "This can be used in conjunction with Fusion360-Batch-Post/PostProcessAll.py to allow for multiple kerf sizes in a single setup",
     group      : "preferences",
     type       : "boolean",
     value      : false,
@@ -586,7 +594,7 @@ function onOpen() {
     }
   }
 
-  writeComment("-------------------------------Do not modify the Gcode file---------------");
+  writeComment("-------------------------------Do not modify the Gcode file---------------\n");
 
   // absolute coordinates and feed per min
   writeBlock(gAbsIncModal.format(90));
@@ -720,6 +728,11 @@ function formatCycleTime(cycleTime) {
 }
 
 function onSection() {
+
+  if (getProperty("IncludeFakeToolSelect")) {
+    writeBlock("\nT" + tool.number.toString().padStart(3,"0"));
+  }
+
   getCuttingData(currentSection);
   writeln("");
 
